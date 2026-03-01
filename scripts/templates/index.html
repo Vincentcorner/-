@@ -1,0 +1,2145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>意图匹配分析平台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --border: rgba(75, 85, 99, 0.4);
+            --border-active: rgba(99, 102, 241, 0.6);
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent: #6366f1;
+            --accent-light: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --success: #10b981;
+            --success-bg: rgba(16, 185, 129, 0.1);
+            --error: #ef4444;
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --warning: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+            --gradient-2: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+            animation: bgShift 20s ease-in-out infinite;
+            z-index: -1;
+        }
+
+        @keyframes bgShift {
+
+            0%,
+            100% {
+                transform: translate(0, 0);
+            }
+
+            50% {
+                transform: translate(-2%, 1%);
+            }
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 24px 32px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+            padding: 28px 0 20px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Card */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(20px);
+            transition: border-color 0.3s;
+        }
+
+        .card:hover {
+            border-color: var(--border-active);
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-title .icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            background: var(--accent-glow);
+        }
+
+        /* Upload Zone */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 36px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .upload-zone:hover,
+        .upload-zone.dragover {
+            border-color: var(--accent);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .upload-zone.has-file {
+            border-color: var(--success);
+            background: var(--success-bg);
+            border-style: solid;
+        }
+
+        .upload-zone .upload-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .upload-zone .upload-text {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .upload-zone .upload-text strong {
+            color: var(--accent-light);
+        }
+
+        .upload-zone .file-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--success);
+            margin-top: 8px;
+        }
+
+        .upload-zone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /* Form Controls */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .form-group select,
+        .form-group input[type="number"],
+        .form-group input[type="text"] {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus {
+            border-color: var(--accent);
+        }
+
+        .form-group select option {
+            background: var(--bg-secondary);
+        }
+
+        /* Weights Section */
+        .weights-section {
+            margin-top: 16px;
+        }
+
+        .weights-toggle {
+            display: flex;
+            gap: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            width: fit-content;
+            margin-bottom: 12px;
+        }
+
+        .weights-toggle button {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: none;
+            padding: 8px 20px;
+            font-size: 13px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .weights-toggle button.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .weights-auto,
+        .weights-manual {
+            display: none;
+        }
+
+        .weights-auto.active,
+        .weights-manual.active {
+            display: block;
+        }
+
+        .weights-info {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .weights-info.ok {
+            border-color: rgba(16, 185, 129, 0.3);
+            color: var(--success);
+        }
+
+        .weights-info.warn {
+            border-color: rgba(245, 158, 11, 0.3);
+            color: var(--warning);
+        }
+
+        .weights-upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        .weights-upload-zone:hover {
+            border-color: var(--accent);
+        }
+
+        .weights-upload-zone.has-file {
+            border-color: var(--success);
+            border-style: solid;
+        }
+
+        .weights-upload-zone input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: var(--gradient-1);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 36px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px var(--accent-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--accent-light);
+            border: 1px solid var(--border-active);
+            border-radius: 10px;
+            padding: 10px 24px;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-secondary:hover {
+            background: var(--accent-glow);
+        }
+
+        .actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        /* Progress */
+        .progress-section {
+            display: none;
+        }
+
+        .progress-section.active {
+            display: block;
+        }
+
+        .progress-bar-wrapper {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+            margin: 16px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--gradient-2);
+            border-radius: 8px;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+        }
+
+        .progress-info .phase {
+            color: var(--accent-light);
+            font-weight: 500;
+        }
+
+        .progress-info .count {
+            color: var(--text-muted);
+        }
+
+        .log-box {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 16px;
+            margin-top: 16px;
+            max-height: 160px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12.5px;
+            line-height: 1.8;
+            color: var(--text-secondary);
+        }
+
+        .log-line {
+            display: flex;
+            gap: 8px;
+        }
+
+        .log-time {
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .log-msg.success {
+            color: var(--success);
+        }
+
+        .log-msg.error {
+            color: var(--error);
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .stat-value.accent {
+            color: var(--accent-light);
+        }
+
+        .stat-value.success {
+            color: var(--success);
+        }
+
+        .stat-value.error {
+            color: var(--error);
+        }
+
+        .stat-value.warning {
+            color: var(--warning);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Table */
+        .result-section {
+            display: none;
+        }
+
+        .result-section.active {
+            display: block;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        thead th {
+            background: var(--bg-secondary);
+            padding: 12px 14px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        tbody td {
+            padding: 11px 14px;
+            border-top: 1px solid rgba(75, 85, 99, 0.2);
+            color: var(--text-primary);
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        tbody tr {
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover {
+            background: rgba(99, 102, 241, 0.04);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge.match {
+            background: var(--success-bg);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge.no-match {
+            background: var(--error-bg);
+            color: var(--error);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .analysis-cell {
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: default;
+        }
+
+        .analysis-cell.ok {
+            color: var(--success);
+        }
+
+        .analysis-cell.warn {
+            color: var(--warning);
+        }
+
+        /* History Panel */
+        .history-panel {
+            margin-bottom: 20px;
+        }
+
+        .history-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 14px 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            transition: all 0.3s;
+            user-select: none;
+        }
+
+        .history-toggle:hover {
+            border-color: var(--border-active);
+        }
+
+        .history-toggle .arrow {
+            transition: transform 0.3s;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .history-toggle.open .arrow {
+            transform: rotate(90deg);
+        }
+
+        .history-toggle .title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .history-toggle .count {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .history-body {
+            display: none;
+            margin-top: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            max-height: 360px;
+            overflow-y: auto;
+            backdrop-filter: blur(20px);
+        }
+
+        .history-body.open {
+            display: block;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 13px;
+        }
+
+        .history-item:hover {
+            background: rgba(99, 102, 241, 0.08);
+        }
+
+        .history-item .hi-domain {
+            color: var(--accent-light);
+            font-weight: 600;
+            min-width: 80px;
+        }
+
+        .history-item .hi-date {
+            color: var(--text-muted);
+            min-width: 70px;
+        }
+
+        .history-item .hi-file {
+            color: var(--text-primary);
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .history-item .hi-acc {
+            font-weight: 600;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .history-empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 24px;
+            font-size: 13px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .fade-in {
+            animation: fadeInUp 0.4s ease forwards;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* Validation Header + Flowchart */
+        .validation-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .validation-header h2 {
+            font-size: 22px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 2px;
+        }
+
+        .flowchart-wrapper {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px 16px;
+            margin-bottom: 24px;
+            overflow-x: auto;
+        }
+
+        .flowchart-wrapper svg text {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Detail Button */
+        .btn-detail {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--accent-light);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 6px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-detail:hover {
+            background: rgba(99, 102, 241, 0.3);
+            transform: translateY(-1px);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 24px;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 800px;
+            max-height: 85vh;
+            overflow-y: auto;
+            animation: fadeInUp 0.3s ease;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            background: var(--bg-secondary);
+            z-index: 1;
+            border-radius: 16px 16px 0 0;
+        }
+
+        .modal-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 22px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .modal-section {
+            margin-bottom: 20px;
+        }
+
+        .modal-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .modal-field {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+            word-break: break-all;
+        }
+
+        .modal-field-label {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        .modal-diagnosis {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--warning);
+        }
+
+        .modal-diagnosis.ok {
+            background: var(--success-bg);
+            border-color: rgba(16, 185, 129, 0.3);
+            color: var(--success);
+        }
+
+        .modal-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .modal-table th {
+            background: var(--bg-primary);
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .modal-table td {
+            padding: 8px 12px;
+            border-top: 1px solid rgba(75, 85, 99, 0.2);
+        }
+
+        .tag {
+            display: inline-block;
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--accent-light);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin: 2px;
+        }
+
+        @media (max-width:768px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .container {
+                padding: 16px;
+            }
+        }
+
+        /* Tab 导航 */
+        .main-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(20px);
+        }
+
+        .main-tab {
+            flex: 1;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .main-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .main-tab.active {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 2px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 特征词管理面板 */
+        .fe-result-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 12px;
+        }
+
+        .fe-result-table th {
+            background: var(--bg-primary);
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .fe-result-table td {
+            padding: 8px 12px;
+            border-top: 1px solid rgba(75, 85, 99, 0.2);
+        }
+
+        .fe-tag {
+            display: inline-block;
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--accent-light);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin: 2px;
+        }
+
+        .fe-tag.l1 {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+        }
+
+        .fe-tag.l2 {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+        }
+
+        .fe-tag.l3 {
+            background: rgba(139, 92, 246, 0.15);
+            color: #a78bfa;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header fade-in">
+            <h1>🎯 意图匹配分析平台</h1>
+            <p>意图匹配结果分析 · 权重词表自动化迭代</p>
+        </div>
+
+        <!-- Tab 导航 -->
+        <div class="main-tabs fade-in">
+            <button class="main-tab active" onclick="switchMainTab('analysis')">🔍 意图匹配分析</button>
+            <button class="main-tab" onclick="switchMainTab('feature')">🧩 特征词管理</button>
+        </div>
+
+        <!-- ====== Tab 1: 意图匹配分析 ====== -->
+        <div class="tab-content active" id="tabAnalysis">
+
+            <!-- 配置卡片 -->
+            <div class="card fade-in" id="configCard">
+                <div class="card-title">
+                    <span class="icon">📁</span> 数据配置
+                </div>
+
+                <div class="upload-zone" id="uploadZone">
+                    <span class="upload-icon">📄</span>
+                    <div class="upload-text">拖拽 Excel 文件到此处，或 <strong>点击选择文件</strong></div>
+                    <div class="file-name" id="fileName" style="display:none"></div>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls">
+                </div>
+
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr">
+                    <div class="form-group">
+                        <label>领域</label>
+                        <select id="domainSelect"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>起始行号</label>
+                        <input type="number" id="startInput" value="1" min="1" max="10000"
+                            title="从 Excel 的第几行开始（1 = 第一行数据）">
+                    </div>
+                    <div class="form-group">
+                        <label>分析条数</label>
+                        <input type="number" id="countInput" value="20" min="1" max="500">
+                    </div>
+                </div>
+
+                <!-- 权重词表选择 -->
+                <div class="weights-section">
+                    <label
+                        style="font-size:13px;font-weight:500;color:var(--text-secondary);display:block;margin-bottom:8px">
+                        权重词表
+                    </label>
+                    <div class="weights-toggle">
+                        <button class="active" id="weightsAutoBtn" onclick="switchWeightsMode('auto')">🔍 自动检测</button>
+                        <button id="weightsManualBtn" onclick="switchWeightsMode('manual')">📤 手动上传</button>
+                    </div>
+
+                    <div class="weights-auto active" id="weightsAutoPanel">
+                        <div class="weights-info" id="weightsAutoInfo">正在检测...</div>
+                        <select id="weightsAutoSelect"
+                            style="display:none;margin-top:8px;width:100%;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text-primary);font-size:14px;font-family:inherit;outline:none"></select>
+                    </div>
+
+                    <div class="weights-manual" id="weightsManualPanel">
+                        <div class="weights-upload-zone" id="weightsUploadZone">
+                            <span style="font-size:24px;display:block;margin-bottom:6px">📋</span>
+                            <span style="font-size:13px;color:var(--text-secondary)">上传 weighted_words.json 文件</span>
+                            <input type="file" id="weightsFileInput" accept=".json">
+                        </div>
+                        <div class="weights-info" id="weightsManualInfo" style="display:none;margin-top:8px"></div>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="btn-primary" id="startBtn" disabled>🚀 开始分析</button>
+                    <span id="errorMsg" style="color:var(--error);font-size:13px;display:none"></span>
+                </div>
+            </div>
+
+            <!-- 进度 -->
+            <div class="card progress-section" id="progressSection">
+                <div class="card-title">
+                    <span class="icon">⚡</span>
+                    <span id="progressTitle">执行进度</span>
+                    <span class="pulse" id="runningDot" style="color:var(--success);font-size:10px">●</span>
+                </div>
+                <div class="progress-info">
+                    <span class="phase" id="phaseText">准备中...</span>
+                    <span class="count" id="progressCount">0 / 0</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+                <div class="log-box" id="logBox"></div>
+            </div>
+
+            <!-- 历史分析结果 -->
+            <div class="history-panel" id="historyPanel">
+                <div class="history-toggle" id="historyToggle" onclick="toggleHistory()">
+                    <span class="arrow">▶</span>
+                    <span class="title">📂 历史分析结果</span>
+                    <span class="count" id="historyCount"></span>
+                </div>
+                <div class="history-body" id="historyBody">
+                    <div class="history-empty" id="historyLoading">加载中...</div>
+                </div>
+            </div>
+
+            <!-- 结果 -->
+            <div class="result-section" id="resultSection" style="margin-bottom:0">
+                <div class="card">
+                    <!-- 标题行 -->
+                    <div class="validation-header">
+                        <h2>🔍 人工分类校验问题自动化</h2>
+                    </div>
+
+                    <!-- 自动化校验流程示意图 -->
+                    <div class="flowchart-wrapper">
+                        <svg viewBox="0 0 1100 260" xmlns="http://www.w3.org/2000/svg"
+                            style="width:100%;max-width:1100px;display:block;margin:0 auto">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                    <polygon points="0 0, 8 3, 0 6" fill="#9ca3af" />
+                                </marker>
+                            </defs>
+                            <!-- 起始节点 -->
+                            <rect x="10" y="100" width="110" height="40" rx="20" fill="rgba(99,102,241,0.2)"
+                                stroke="#6366f1" stroke-width="1.5" />
+                            <text x="65" y="125" text-anchor="middle" fill="#a5b4fc" font-size="13">结果详情信息</text>
+                            <!-- 箭头 1 -->
+                            <line x1="120" y1="120" x2="155" y2="120" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <!-- 判断1：候选列表中有标杆意图？ -->
+                            <polygon points="240,50 325,120 240,190 155,120" fill="rgba(245,158,11,0.1)"
+                                stroke="#f59e0b" stroke-width="1.5" />
+                            <text x="240" y="110" text-anchor="middle" fill="#fbbf24" font-size="11">意图得分清单中</text>
+                            <text x="240" y="126" text-anchor="middle" fill="#fbbf24" font-size="11">是否有标杆意图？</text>
+                            <!-- 是：大模型筛选问题 -->
+                            <line x1="240" y1="190" x2="240" y2="225" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <text x="252" y="210" fill="#10b981" font-size="11">是</text>
+                            <rect x="180" y="228" width="120" height="30" rx="6" fill="rgba(239,68,68,0.15)"
+                                stroke="#ef4444" stroke-width="1" />
+                            <text x="240" y="248" text-anchor="middle" fill="#f87171" font-size="11">大模型筛选问题</text>
+                            <!-- 否：继续 -->
+                            <line x1="325" y1="120" x2="375" y2="120" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <text x="345" y="112" fill="#ef4444" font-size="11">否</text>
+                            <!-- 判断2：权重表中有标杆意图？ -->
+                            <polygon points="460,50 545,120 460,190 375,120" fill="rgba(245,158,11,0.1)"
+                                stroke="#f59e0b" stroke-width="1.5" />
+                            <text x="460" y="110" text-anchor="middle" fill="#fbbf24" font-size="11">权重表中是否有</text>
+                            <text x="460" y="126" text-anchor="middle" fill="#fbbf24" font-size="11">相关标杆意图？</text>
+                            <!-- 否：权重分表意图不全 -->
+                            <line x1="460" y1="190" x2="460" y2="225" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <text x="472" y="210" fill="#ef4444" font-size="11">否</text>
+                            <rect x="390" y="228" width="140" height="30" rx="6" fill="rgba(239,68,68,0.15)"
+                                stroke="#ef4444" stroke-width="1" />
+                            <text x="460" y="248" text-anchor="middle" fill="#f87171" font-size="11">权重分表意图不全</text>
+                            <!-- 是：计算标杆意图权重分 -->
+                            <line x1="545" y1="120" x2="590" y2="120" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <text x="562" y="112" fill="#10b981" font-size="11">是</text>
+                            <rect x="590" y="100" width="130" height="40" rx="8" fill="rgba(14,165,233,0.15)"
+                                stroke="#0ea5e9" stroke-width="1.5" />
+                            <text x="655" y="125" text-anchor="middle" fill="#38bdf8" font-size="12">计算标杆意图权重分</text>
+                            <!-- 箭头：到判断3 -->
+                            <line x1="720" y1="120" x2="755" y2="120" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <!-- 判断3：是否权重分低？ -->
+                            <polygon points="840,50 925,120 840,190 755,120" fill="rgba(245,158,11,0.1)"
+                                stroke="#f59e0b" stroke-width="1.5" />
+                            <text x="840" y="116" text-anchor="middle" fill="#fbbf24" font-size="11">是否权重分低？</text>
+                            <!-- 否：topK意图取得不全 -->
+                            <line x1="840" y1="190" x2="840" y2="225" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <text x="852" y="210" fill="#ef4444" font-size="11">否</text>
+                            <rect x="770" y="228" width="140" height="30" rx="6" fill="rgba(239,68,68,0.15)"
+                                stroke="#ef4444" stroke-width="1" />
+                            <text x="840" y="248" text-anchor="middle" fill="#f87171" font-size="11">topK意图取得不全</text>
+                            <!-- 是：特征词匹配不足 -->
+                            <line x1="925" y1="120" x2="945" y2="120" stroke="#9ca3af" stroke-width="1.5"
+                                marker-end="url(#arrowhead)" />
+                            <text x="930" y="112" fill="#10b981" font-size="11">是</text>
+                            <rect x="948" y="80" width="140" height="80" rx="8" fill="rgba(139,92,246,0.15)"
+                                stroke="#8b5cf6" stroke-width="1.5" />
+                            <text x="1018" y="110" text-anchor="middle" fill="#a78bfa" font-size="11">特征词匹配不足</text>
+                            <text x="1018" y="128" text-anchor="middle" fill="#a78bfa" font-size="10">转写未覆盖特征词</text>
+                            <text x="1018" y="146" text-anchor="middle" fill="#a78bfa" font-size="10">或权重分过低</text>
+                        </svg>
+                    </div>
+
+                    <div class="card-title">
+                        <span class="icon">📊</span> 分析结果
+                        <div style="margin-left:auto;display:flex;gap:8px">
+                            <button class="btn-secondary" id="downloadBtn">📥 下载 Excel</button>
+                        </div>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value accent" id="statTotal">0</div>
+                            <div class="stat-label">总条数</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value success" id="statMatch">0</div>
+                            <div class="stat-label">匹配一致</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value error" id="statMismatch">0</div>
+                            <div class="stat-label">不一致</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value warning" id="statAccuracy">0%</div>
+                            <div class="stat-label">准确率</div>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>原始问题</th>
+                                    <th>算法意图</th>
+                                    <th>意图特征词</th>
+                                    <th>特征词定位</th>
+                                    <th>标杆意图</th>
+                                    <th>结果</th>
+                                    <th>分析结果</th>
+                                    <th>详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 详情弹窗 -->
+            <div class="modal-overlay" id="detailModal" onclick="if(event.target===this)closeDetail()">
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h3>📝 详情分析</h3>
+                        <button class="modal-close" onclick="closeDetail()">✕</button>
+                    </div>
+                    <div class="modal-body" id="detailContent"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // 预设领域列表（含用户可能要的多个领域）
+            const PRESET_DOMAINS = [
+                '失业保险', '养老保险', '医疗保险', '工伤保险',
+                '生育保险', '住房公积金', '社会救助', '就业创业'
+            ];
+
+            let selectedFile = null;
+            let currentTaskId = null;
+            let weightsMode = 'auto'; // 'auto' | 'manual'
+            let manualWeightsPath = '';
+            let autoWeightsPath = '';
+            let domainWeightsMap = {}; // {domain: [{path, label}]}
+            let allResultDetails = []; // 存储所有结果详情
+
+            const $ = id => document.getElementById(id);
+
+            // ===== 初始化 =====
+            async function init() {
+                await loadDomains();
+                updateWeightsAuto();
+            }
+
+            async function loadDomains() {
+                try {
+                    const res = await fetch('/api/domains');
+                    const domains = await res.json();
+
+                    // 合并预设 + 服务器检测到的领域
+                    const domainNames = new Set(PRESET_DOMAINS);
+                    for (const d of domains) {
+                        domainNames.add(d.name);
+                        if (d.weights_files && d.weights_files.length > 0) {
+                            domainWeightsMap[d.name] = d.weights_files;
+                        }
+                    }
+
+                    const domainSelect = $('domainSelect');
+                    domainSelect.innerHTML = '';
+                    for (const name of domainNames) {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        if (domainWeightsMap[name]) opt.textContent += ' ✓';
+                        domainSelect.appendChild(opt);
+                    }
+
+                    domainSelect.addEventListener('change', updateWeightsAuto);
+                } catch (e) {
+                    console.error('加载领域失败:', e);
+                    // 降级：使用预设
+                    const domainSelect = $('domainSelect');
+                    domainSelect.innerHTML = PRESET_DOMAINS.map(d =>
+                        `<option value="${d}">${d}</option>`
+                    ).join('');
+                }
+            }
+
+            // ===== 权重词表模式切换 =====
+            function switchWeightsMode(mode) {
+                weightsMode = mode;
+                $('weightsAutoBtn').classList.toggle('active', mode === 'auto');
+                $('weightsManualBtn').classList.toggle('active', mode === 'manual');
+                $('weightsAutoPanel').classList.toggle('active', mode === 'auto');
+                $('weightsManualPanel').classList.toggle('active', mode === 'manual');
+                checkReady();
+            }
+
+            function updateWeightsAuto() {
+                const domain = $('domainSelect').value;
+                const info = $('weightsAutoInfo');
+                const sel = $('weightsAutoSelect');
+
+                const files = domainWeightsMap[domain];
+                if (files && files.length > 0) {
+                    autoWeightsPath = files[0].path;
+                    info.className = 'weights-info ok';
+                    info.textContent = `✅ 已检测到 "${domain}" 的权重词表`;
+
+                    if (files.length > 1) {
+                        sel.style.display = 'block';
+                        sel.innerHTML = files.map(f =>
+                            `<option value="${f.path}">${f.label}</option>`
+                        ).join('');
+                        sel.onchange = () => { autoWeightsPath = sel.value; };
+                    } else {
+                        sel.style.display = 'none';
+                    }
+                } else {
+                    autoWeightsPath = '';
+                    info.className = 'weights-info warn';
+                    info.textContent = `⚠️ 未找到 "${domain}" 的权重词表，请切换到「手动上传」或选择其他领域`;
+                    sel.style.display = 'none';
+                }
+                checkReady();
+            }
+
+            // ===== 文件选择 =====
+            $('fileInput').addEventListener('change', e => {
+                const file = e.target.files[0];
+                if (file) {
+                    selectedFile = file;
+                    $('uploadZone').classList.add('has-file');
+                    $('fileName').style.display = 'block';
+                    $('fileName').textContent = `✅ ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                    $('uploadZone').querySelector('.upload-icon').textContent = '✅';
+                    $('uploadZone').querySelector('.upload-text').style.display = 'none';
+                    checkReady();
+                }
+            });
+
+            // 拖拽
+            const uz = $('uploadZone');
+            uz.addEventListener('dragover', e => { e.preventDefault(); uz.classList.add('dragover'); });
+            uz.addEventListener('dragleave', () => uz.classList.remove('dragover'));
+            uz.addEventListener('drop', e => {
+                e.preventDefault(); uz.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file && /\.xlsx?$/i.test(file.name)) {
+                    selectedFile = file;
+                    $('fileInput').files = e.dataTransfer.files;
+                    uz.classList.add('has-file');
+                    $('fileName').style.display = 'block';
+                    $('fileName').textContent = `✅ ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                    uz.querySelector('.upload-icon').textContent = '✅';
+                    uz.querySelector('.upload-text').style.display = 'none';
+                    checkReady();
+                }
+            });
+
+            // 权重文件上传（使用 FileReader 读取后以 JSON 发送，避免 multipart 兼容性问题）
+            $('weightsFileInput').addEventListener('change', e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const info = $('weightsManualInfo');
+                info.style.display = 'block';
+                info.className = 'weights-info';
+                info.textContent = '读取文件中...';
+
+                const reader = new FileReader();
+                reader.onload = async function (evt) {
+                    info.textContent = '上传中...';
+                    try {
+                        // 先在客户端验证 JSON 格式
+                        const content = evt.target.result;
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(content);
+                        } catch (pe) {
+                            info.className = 'weights-info warn';
+                            info.textContent = `❌ 文件不是有效的 JSON 格式`;
+                            manualWeightsPath = '';
+                            checkReady();
+                            return;
+                        }
+
+                        // 通过 JSON body 发送（不用 multipart）
+                        const res = await fetch('/api/upload-weights-json', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ filename: file.name, content: parsed })
+                        });
+                        const data = await res.json();
+                        if (data.error) {
+                            info.className = 'weights-info warn';
+                            info.textContent = `❌ ${data.error}`;
+                            manualWeightsPath = '';
+                        } else {
+                            manualWeightsPath = data.path;
+                            info.className = 'weights-info ok';
+                            info.textContent = `✅ ${data.filename}（${data.intent_count} 个意图, ${data.word_count} 个词）`;
+                            $('weightsUploadZone').classList.add('has-file');
+                        }
+                    } catch (err) {
+                        info.className = 'weights-info warn';
+                        info.textContent = `❌ 上传失败: ${err.message}`;
+                        manualWeightsPath = '';
+                    }
+                    checkReady();
+                };
+                reader.onerror = function () {
+                    info.className = 'weights-info warn';
+                    info.textContent = `❌ 读取文件失败`;
+                    manualWeightsPath = '';
+                    checkReady();
+                };
+                reader.readAsText(file, 'UTF-8');
+            });
+
+            function checkReady() {
+                const hasFile = !!selectedFile;
+                const hasWeights = weightsMode === 'auto' ? !!autoWeightsPath : !!manualWeightsPath;
+                $('startBtn').disabled = !(hasFile && hasWeights);
+            }
+
+            // ===== 日志 =====
+            function addLog(msg, type = '') {
+                const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                line.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${escapeHtml(msg)}</span>`;
+                $('logBox').appendChild(line);
+                $('logBox').scrollTop = $('logBox').scrollHeight;
+            }
+
+            function escapeHtml(text) {
+                if (!text) return '';
+                const d = document.createElement('div');
+                d.textContent = text;
+                return d.innerHTML;
+            }
+
+            // ===== 开始分析 =====
+            $('startBtn').addEventListener('click', async () => {
+                if (!selectedFile) return;
+                const errorMsg = $('errorMsg');
+                errorMsg.style.display = 'none';
+
+                $('startBtn').disabled = true;
+                $('startBtn').textContent = '⏳ 分析中...';
+                $('progressSection').classList.add('active');
+                $('resultSection').classList.remove('active');
+                $('resultBody').innerHTML = '';
+                $('logBox').innerHTML = '';
+                allResultDetails = [];
+                $('runningDot').style.display = '';
+                $('progressBar').style.width = '0%';
+
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                formData.append('domain', $('domainSelect').value);
+                formData.append('start', Math.max(0, parseInt($('startInput').value || '1') - 1)); // 转为 0-indexed
+                formData.append('count', $('countInput').value);
+                formData.append('weights_path', weightsMode === 'auto' ? autoWeightsPath : manualWeightsPath);
+
+                try {
+                    const res = await fetch('/api/start', { method: 'POST', body: formData });
+                    const data = await res.json();
+
+                    if (data.error) {
+                        addLog(data.error, 'error');
+                        errorMsg.textContent = data.error;
+                        errorMsg.style.display = 'inline';
+                        resetBtn();
+                        return;
+                    }
+
+                    currentTaskId = data.task_id;
+                    addLog(`任务已创建: ${data.task_id}`);
+                    listenProgress(data.task_id);
+                } catch (e) {
+                    addLog(`启动失败: ${e.message}`, 'error');
+                    errorMsg.textContent = `启动失败: ${e.message}`;
+                    errorMsg.style.display = 'inline';
+                    resetBtn();
+                }
+            });
+
+            function resetBtn() {
+                $('startBtn').disabled = false;
+                $('startBtn').textContent = '🚀 开始分析';
+            }
+
+            // ===== SSE 监听 =====
+            function listenProgress(taskId) {
+                const es = new EventSource(`/api/progress/${taskId}`);
+
+                es.addEventListener('status', e => {
+                    const data = JSON.parse(e.data);
+                    $('phaseText').textContent = data.message;
+                    addLog(data.message);
+                });
+
+                es.addEventListener('progress', e => {
+                    const data = JSON.parse(e.data);
+                    const pct = (data.current / data.total * 100).toFixed(1);
+                    $('progressBar').style.width = `${pct}%`;
+                    $('progressCount').textContent = `${data.current} / ${data.total}`;
+                    $('phaseText').textContent = data.message;
+                });
+
+                es.addEventListener('result', e => {
+                    const r = JSON.parse(e.data);
+                    appendResultRow(r);
+                });
+
+                es.addEventListener('done', e => {
+                    const data = JSON.parse(e.data);
+                    es.close();
+                    $('progressBar').style.width = '100%';
+                    $('phaseText').textContent = data.message;
+                    $('runningDot').style.display = 'none';
+                    addLog(data.message, 'success');
+
+                    $('statTotal').textContent = data.total_count;
+                    $('statMatch').textContent = data.match_count;
+                    $('statMismatch').textContent = data.total_count - data.match_count;
+                    $('statAccuracy').textContent = data.accuracy + '%';
+                    $('resultSection').classList.add('active');
+                    $('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    resetBtn();
+                });
+
+                es.addEventListener('error', e => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        addLog(data.message, 'error');
+                    } catch { /* SSE error event without data */ }
+                    es.close();
+                    resetBtn();
+                });
+
+                es.onerror = () => { /* ignore auto-reconnect */ };
+            }
+
+            function appendResultRow(r) {
+                // 保存详情数据
+                const idx = allResultDetails.length;
+                allResultDetails.push(r);
+
+                const tr = document.createElement('tr');
+                tr.className = 'fade-in';
+                const analysis = r['分析结果'] || (r['详情'] && r['详情']['诊断分析']) || '';
+                const analysisClass = analysis.startsWith('✓') ? 'ok' : 'warn';
+                const featureLoc = r['全量特征词定位'] || '';
+                tr.innerHTML = `
+        <td>${r['序号']}</td>
+        <td title="${escapeHtml(r['原始问题'])}">${escapeHtml((r['原始问题'] || '').substring(0, 40))}</td>
+        <td title="${escapeHtml(r['全量意图'])}">${escapeHtml(r['算法意图'])}</td>
+        <td title="${escapeHtml(r['意图特征词'] || '')}">${escapeHtml((r['意图特征词'] || '').substring(0, 60))}</td>
+        <td title="${escapeHtml(featureLoc)}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-secondary)">${escapeHtml(featureLoc.substring(0, 50))}</td>
+        <td>${escapeHtml(r['标杆意图'] || '-')}</td>
+        <td><span class="badge ${r['是否一致'] === '✓' ? 'match' : 'no-match'}">${r['是否一致']}</span></td>
+        <td class="analysis-cell ${analysisClass}" title="${escapeHtml(analysis)}">${escapeHtml(analysis.substring(0, 50))}</td>
+        <td><button class="btn-detail" onclick="showDetail(${idx})">📋 详情</button></td>
+    `;
+                $('resultBody').appendChild(tr);
+                $('resultSection').classList.add('active');
+            }
+
+            // ===== 详情弹窗 =====
+            // 获取当前页面选择的权重词表路径
+            function getCurrentWeightsPath() {
+                return weightsMode === 'auto' ? autoWeightsPath : manualWeightsPath;
+            }
+
+            // 点击意图名展开全量特征词及权重
+            async function toggleIntentFeatures(intentName, rowId, evt) {
+                const expandRow = document.getElementById(rowId);
+                if (expandRow) {
+                    // 已展开则收起
+                    expandRow.remove();
+                    return;
+                }
+                const weightsPath = getCurrentWeightsPath();
+                if (!weightsPath) {
+                    alert('未选择权重词表，无法查询特征词');
+                    return;
+                }
+                try {
+                    const res = await fetch('/api/intent-weights', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ weights_path: weightsPath, intent_name: intentName })
+                    });
+                    const data = await res.json();
+                    if (data.error && !data.features) {
+                        alert(data.error);
+                        return;
+                    }
+                    const features = data.features || [];
+                    if (features.length === 0) {
+                        alert(`意图「${intentName}」在权重词表中未找到特征词`);
+                        return;
+                    }
+                    // 在点击行下方插入子表格
+                    const parentRow = evt.target.closest('tr');
+                    const newRow = document.createElement('tr');
+                    newRow.id = rowId;
+                    newRow.innerHTML = `<td colspan="5" style="padding:0">
+                    <div style="background:rgba(99,102,241,0.05);border:1px solid var(--border);border-radius:8px;margin:4px 12px 8px;padding:12px;max-height:300px;overflow-y:auto">
+                        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">📚 意图「${escapeHtml(data.intent_name)}」全量特征词（共 ${features.length} 个）</div>
+                        <table class="modal-table" style="font-size:12px">
+                            <thead><tr><th>词</th><th>层级</th><th>权重分</th></tr></thead>
+                            <tbody>${features.map(f => `<tr>
+                                <td>${escapeHtml(f['词'])}</td>
+                                <td><span class="tag">${escapeHtml(f['层级'])}</span></td>
+                                <td style="font-weight:600">${f['权重'].toFixed(4)}</td>
+                            </tr>`).join('')}</tbody>
+                        </table>
+                    </div>
+                </td>`;
+                    parentRow.after(newRow);
+                } catch (e) {
+                    alert(`查询失败: ${e.message}`);
+                }
+            }
+
+            function showDetail(idx) {
+                const r = allResultDetails[idx];
+                if (!r) return;
+                const detail = r['详情'] || {};
+                const diagnosis = detail['诊断分析'] || '';
+                const isOk = r['是否一致'] === '✓';
+
+                // 使用全量意图得分（无阈值过滤），回退到旧字段
+                const scores = detail['全量意图得分_无阈值'] || detail['全量意图得分'] || [];
+                const hitWords = detail['全量命中词'] || {};
+                let scoreRows = '';
+                if (scores.length > 0) {
+                    scoreRows = scores.map((s, i) => {
+                        const words = (hitWords[s['意图']] || []).map(w => `<span class="tag">${escapeHtml(w)}</span>`).join('');
+                        const intentId = `intent-expand-${idx}-${i}`;
+                        return `<tr>
+                        <td>${i + 1}</td>
+                        <td style="cursor:pointer;color:var(--accent-light);text-decoration:underline" onclick="toggleIntentFeatures(this.dataset.intent, '${intentId}', event)" data-intent="${escapeHtml(s['意图'])}" title="点击查看全量特征词及权重分">${escapeHtml(s['意图'])}</td>
+                        <td>${s['得分'].toFixed(4)}</td>
+                        <td>${s['命中词数'] || 0}</td>
+                        <td>${words || '-'}</td>
+                    </tr>`;
+                    }).join('');
+                }
+
+                const html = `
+                <div class="modal-section">
+                    <div class="modal-section-title">🔍 诊断分析</div>
+                    <div class="modal-diagnosis ${isOk ? 'ok' : ''}">${escapeHtml(diagnosis)}</div>
+                </div>
+
+                <div class="modal-section">
+                    <div class="modal-section-title">📋 基本信息</div>
+                    <div class="modal-field">
+                        <div class="modal-field-label">原始问题</div>
+                        ${escapeHtml(detail['原始问题_完整'] || r['原始问题'])}
+                    </div>
+                    <div class="modal-field">
+                        <div class="modal-field-label">转写结果</div>
+                        ${escapeHtml(detail['转写结果'] || r['转写结果'] || '')}
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                        <div class="modal-field">
+                            <div class="modal-field-label">算法意图</div>
+                            <strong>${escapeHtml(r['算法意图'])}</strong>
+                        </div>
+                        <div class="modal-field">
+                            <div class="modal-field-label">标杆意图</div>
+                            <strong>${escapeHtml(r['标杆意图'] || '-')}</strong>
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                        <div class="modal-field">
+                            <div class="modal-field-label">转写来源</div>
+                            ${r['转写来源']}
+                        </div>
+                        <div class="modal-field">
+                            <div class="modal-field-label">结果</div>
+                            <span class="badge ${isOk ? 'match' : 'no-match'}">${r['是否一致']}</span>
+                        </div>
+                    </div>
+                </div>
+
+                ${scores.length > 0 ? `
+                <div class="modal-section">
+                    <div class="modal-section-title">🎯 意图得分明细（全量，点击意图名查看特征词权重）</div>
+                    <div class="table-wrapper">
+                        <table class="modal-table">
+                            <thead><tr><th>#</th><th>意图</th><th>得分</th><th>命中词数</th><th>命中特征词</th></tr></thead>
+                            <tbody>${scoreRows}</tbody>
+                        </table>
+                    </div>
+                </div>` : ''}
+
+                <div class="modal-section">
+                    <div class="modal-section-title">📎 意图特征词</div>
+                    <div class="modal-field">${escapeHtml(r['意图特征词'] || '无')}</div>
+                </div>
+
+                <div class="modal-section">
+                    <div class="modal-section-title">📀 全量意图</div>
+                    <div class="modal-field">${escapeHtml(r['全量意图'] || '无')}</div>
+                </div>
+            `;
+
+                $('detailContent').innerHTML = html;
+                $('detailModal').classList.add('active');
+            }
+
+            function closeDetail() {
+                $('detailModal').classList.remove('active');
+            }
+
+            // ESC 关闭弹窗
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape') closeDetail();
+            });
+
+            // 下载
+            $('downloadBtn').addEventListener('click', () => {
+                if (currentTaskId) window.open(`/api/download/${currentTaskId}`, '_blank');
+            });
+
+            // ===== 历史分析结果 =====
+            let historyLoaded = false;
+            let historyOpen = false;
+
+            function toggleHistory() {
+                historyOpen = !historyOpen;
+                $('historyToggle').classList.toggle('open', historyOpen);
+                $('historyBody').classList.toggle('open', historyOpen);
+                if (historyOpen && !historyLoaded) {
+                    loadHistory();
+                }
+            }
+
+            async function loadHistory() {
+                try {
+                    const res = await fetch('/api/history');
+                    const list = await res.json();
+                    historyLoaded = true;
+                    $('historyCount').textContent = `${list.length} 条记录`;
+                    if (list.length === 0) {
+                        $('historyBody').innerHTML = '<div class="history-empty">暂无历史记录</div>';
+                        return;
+                    }
+                    $('historyBody').innerHTML = list.map((h, i) => `
+                    <div class="history-item" data-hpath="${encodeURIComponent(h.path)}">
+                        <span class="hi-domain">${escapeHtml(h.domain)}</span>
+                        <span class="hi-date">${h.date} ${h.time || ''} #${h.batch}</span>
+                        <span class="hi-file">${escapeHtml(h.filename)}</span>
+                        <span class="hi-acc" style="color:${h.accuracy >= 80 ? 'var(--success)' : h.accuracy >= 50 ? 'var(--warning)' : 'var(--error)'}">${h.accuracy}%</span>
+                        <span style="color:var(--text-muted)">${h.match_count}/${h.total}</span>
+                    </div>
+                `).join('');
+                    // 事件委托
+                    $('historyBody').onclick = e => {
+                        const item = e.target.closest('.history-item');
+                        if (item && item.dataset.hpath) {
+                            loadHistoryDetail(decodeURIComponent(item.dataset.hpath));
+                        }
+                    };
+                } catch (e) {
+                    $('historyBody').innerHTML = `<div class="history-empty">加载失败: ${e.message}</div>`;
+                }
+            }
+
+            async function loadHistoryDetail(path) {
+                try {
+                    $('resultBody').innerHTML = '';
+                    allResultDetails = [];
+                    const res = await fetch(`/api/history-detail?path=${encodeURIComponent(path)}`);
+                    const results = await res.json();
+                    if (results.error) {
+                        alert(results.error);
+                        return;
+                    }
+                    const matchCount = results.filter(r => r['是否一致'] === '✓').length;
+                    const total = results.length;
+                    $('statTotal').textContent = total;
+                    $('statMatch').textContent = matchCount;
+                    $('statMismatch').textContent = total - matchCount;
+                    $('statAccuracy').textContent = (total ? (matchCount / total * 100).toFixed(1) : 0) + '%';
+                    results.forEach(r => appendResultRow(r));
+                    $('resultSection').classList.add('active');
+                    $('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (e) {
+                    alert(`加载历史详情失败: ${e.message}`);
+                }
+            }
+
+            // 初始化
+            init();
+        </script>
+
+    </div><!-- /resultSection -->
+    </div><!-- /tabAnalysis -->
+
+    <!-- ====== Tab 2: 特征词管理 ====== -->
+    <div class="tab-content" id="tabFeature">
+
+        <div class="card fade-in">
+            <div class="card-title">
+                <span class="icon">🧩</span> 特征词提取与打分
+            </div>
+
+            <!-- 模式选择 -->
+            <div class="weights-toggle" style="margin-bottom:16px">
+                <button class="active" id="feModeIntentsBtn" onclick="switchFeMode('intents')">📋 纯意图清单</button>
+                <button id="feModeResultsBtn" onclick="switchFeMode('results')">📊 匹配结果清单</button>
+            </div>
+
+            <!-- 上传区 -->
+            <div class="upload-zone" id="feUploadZone" style="margin-bottom:16px">
+                <span class="upload-icon">📄</span>
+                <div class="upload-text">拖拽 Excel 文件到此处，或 <strong>点击选择文件</strong></div>
+                <div class="file-name" id="feFileName" style="display:none"></div>
+                <input type="file" id="feFileInput" accept=".xlsx,.xls,.json">
+            </div>
+
+            <!-- 起始行号 + 提取条数 -->
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>起始行号</label>
+                    <input type="number" id="feStartInput" value="1" min="1">
+                </div>
+                <div class="form-group">
+                    <label>提取条数</label>
+                    <input type="number" id="feCountInput" value="20" min="1">
+                </div>
+            </div>
+
+            <!-- 权重词表路径 -->
+            <div class="form-grid" style="grid-template-columns:1fr auto">
+                <div class="form-group">
+                    <label>权重词表路径（合并目标）</label>
+                    <input type="text" id="feWeightsPath" value="result/global/weighted/weighted_words.json"
+                        placeholder="result/global/weighted/weighted_words.json">
+                </div>
+                <div class="form-group" style="align-self:end">
+                    <button class="btn-primary" id="feStartBtn" onclick="startFeatureExtract()" disabled>🚀
+                        开始提取</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 提取进度 -->
+        <div class="card" id="feProgressCard" style="display:none">
+            <div class="card-title">
+                <span class="icon">⚡</span> 提取进度
+                <span class="pulse" style="color:var(--success);font-size:10px">●</span>
+            </div>
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar" id="feProgressBar"></div>
+            </div>
+            <div class="log-box" id="feLogBox"></div>
+        </div>
+
+        <!-- 提取结果预览 -->
+        <div class="card" id="feResultCard" style="display:none">
+            <div class="card-title">
+                <span class="icon">📋</span> 提取结果预览
+                <div style="margin-left:auto;display:flex;gap:8px">
+                    <button class="btn-secondary" onclick="previewMerge()">👁 预览合并</button>
+                    <button class="btn-primary" onclick="confirmMerge()">✅ 确认合并到词表</button>
+                </div>
+            </div>
+            <div id="feResultContent"></div>
+        </div>
+
+        <!-- 合并日志 -->
+        <div class="card" id="feMergeLogCard" style="display:none">
+            <div class="card-title">
+                <span class="icon">📝</span> 变更日志
+            </div>
+            <pre id="feMergeLog"
+                style="background:var(--bg-primary);border-radius:8px;padding:16px;font-size:12px;color:var(--text-secondary);overflow:auto;max-height:300px;white-space:pre-wrap"></pre>
+        </div>
+
+    </div><!-- /tabFeature -->
+
+    </div><!-- /container -->
+
+    <!-- 特征词管理 JS -->
+    <script>
+        // Tab 切换
+        function switchMainTab(tab) {
+            document.querySelectorAll('.main-tab').forEach((btn, i) => {
+                btn.classList.toggle('active', i === (tab === 'analysis' ? 0 : 1));
+            });
+            document.getElementById('tabAnalysis').classList.toggle('active', tab === 'analysis');
+            document.getElementById('tabFeature').classList.toggle('active', tab === 'feature');
+        }
+
+        // 特征词模式切换
+        function switchFeMode(mode) {
+            document.getElementById('feModeIntentsBtn').classList.toggle('active', mode === 'intents');
+            document.getElementById('feModeResultsBtn').classList.toggle('active', mode === 'results');
+            window._feMode = mode;
+        }
+        window._feMode = 'intents';
+
+        // 特征词文件上传
+        const feFileInput = document.getElementById('feFileInput');
+        const feUploadZone = document.getElementById('feUploadZone');
+        feUploadZone.addEventListener('click', (e) => { if (e.target !== feFileInput) feFileInput.click(); });
+        feFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                const name = e.target.files[0].name;
+                document.getElementById('feFileName').textContent = name;
+                document.getElementById('feFileName').style.display = 'block';
+                feUploadZone.classList.add('has-file');
+                document.getElementById('feStartBtn').disabled = false;
+            }
+        });
+
+        // 特征词提取结果缓存
+        window._feResult = null;
+
+        // 开始提取
+        function startFeatureExtract() {
+            const file = feFileInput.files[0];
+            if (!file) return;
+
+            const feStart = Math.max(0, parseInt(document.getElementById('feStartInput').value || '1') - 1);
+            const feCount = parseInt(document.getElementById('feCountInput').value || '20');
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('start', feStart);
+            formData.append('count', feCount);
+            formData.append('mode', window._feMode);
+
+            document.getElementById('feProgressCard').style.display = 'block';
+            document.getElementById('feResultCard').style.display = 'none';
+            document.getElementById('feLogBox').innerHTML = '';
+            document.getElementById('feProgressBar').style.width = '0%';
+
+            fetch('/api/feature-extract', { method: 'POST', body: formData })
+                .then(r => {
+                    if (!r.ok) {
+                        return r.text().then(t => { throw new Error(`服务器错误 ${r.status}: ${t}`); });
+                    }
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        feLog('❌ ' + data.error, 'error');
+                        return;
+                    }
+                    feLog(`任务已创建: ${data.task_id}，提取第 ${feStart + 1} 行起共 ${feCount} 条`);
+                    // 监听 SSE 进度
+                    const es = new EventSource('/api/feature-extract/progress/' + data.task_id);
+                    es.onmessage = (e) => {
+                        const msg = JSON.parse(e.data);
+                        if (msg.type === 'progress') {
+                            const p = msg.data;
+                            const pct = Math.round(p.current / p.total * 100);
+                            document.getElementById('feProgressBar').style.width = pct + '%';
+                            feLog(p.message);
+                        } else if (msg.type === 'done') {
+                            es.close();
+                            document.getElementById('feProgressBar').style.width = '100%';
+                            feLog('✅ 提取完成', 'success');
+                            window._feResult = msg.data;
+                            renderFeResult(msg.data);
+                        } else if (msg.type === 'error') {
+                            es.close();
+                            feLog('❌ ' + msg.data, 'error');
+                        }
+                    };
+                })
+                .catch(err => {
+                    feLog('❌ 请求失败: ' + err.message, 'error');
+                });
+        }
+
+        function feLog(msg, cls) {
+            const box = document.getElementById('feLogBox');
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            const time = new Date().toLocaleTimeString();
+            line.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${cls || ''}">${msg}</span>`;
+            box.appendChild(line);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function renderFeResult(data) {
+            const card = document.getElementById('feResultCard');
+            card.style.display = 'block';
+            const content = document.getElementById('feResultContent');
+            const map = data['意图映射表'] || {};
+            const weightTable = data['词权重表'] || {};
+
+            // 辅助函数：获取词的权重分显示
+            function getWeightBadge(word) {
+                const info = weightTable[word];
+                if (!info) return '<span style="color:var(--text-muted);font-size:11px">待打分</span>';
+                let w = null;
+                if (typeof info === 'object') {
+                    if (info['权重'] !== undefined) {
+                        // 旧格式: {权重: 0.8, 理由: "..."}
+                        w = info['权重'];
+                    } else {
+                        // 新格式: {意图名: {权重: 0.8, 理由: "..."}}
+                        // 取最高分展示
+                        let maxW = 0;
+                        for (const [k, v] of Object.entries(info)) {
+                            if (v && typeof v === 'object' && v['权重'] !== undefined) {
+                                maxW = Math.max(maxW, v['权重']);
+                            }
+                        }
+                        if (maxW > 0) w = maxW;
+                    }
+                }
+                if (w !== null) {
+                    const color = w >= 0.8 ? 'var(--success)' : w >= 0.6 ? 'var(--warning)' : 'var(--text-muted)';
+                    return `<span style="color:${color};font-weight:600;font-size:11px">${w.toFixed(2)}</span>`;
+                }
+                return '<span style="color:var(--text-muted);font-size:11px">待打分</span>';
+            }
+
+            // 辅助函数：生成带权重的词标签
+            function tagWithWeight(word, cls) {
+                return `<span class="fe-tag ${cls}" style="display:inline-flex;align-items:center;gap:4px">${word} ${getWeightBadge(word)}</span>`;
+            }
+
+            let html = `<table class="fe-result-table"><thead><tr><th>意图</th><th>核心词</th><th>发散词</th><th>同义词</th></tr></thead><tbody>`;
+            for (const [intent, layers] of Object.entries(map)) {
+                const core = (layers['核心词'] || layers['L1_事项词'] || []).map(w => tagWithWeight(w, 'l1')).join('');
+                const div = (layers['发散词'] || layers['L2_动作词'] || []).map(w => tagWithWeight(w, 'l2')).join('');
+                const syn = (layers['同义词'] || layers['L3_场景词'] || []).map(w => tagWithWeight(w, 'l3')).join('');
+                html += `<tr><td style="font-weight:600">${intent}</td><td>${core || '-'}</td><td>${div || '-'}</td><td>${syn || '-'}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            content.innerHTML = html;
+        }
+
+        function previewMerge() {
+            if (!window._feResult) { feLog('❌ 请先提取特征词', 'error'); return; }
+            const weightsPath = document.getElementById('feWeightsPath').value || 'result/global/weighted/weighted_words.json';
+            feLog('正在预览合并...');
+            fetch('/api/feature-extract/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ features: window._feResult, weights_path: weightsPath })
+            })
+                .then(r => {
+                    if (!r.ok) return r.text().then(t => { throw new Error(`服务器错误 ${r.status}: ${t}`); });
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) { feLog('❌ ' + data.error, 'error'); return; }
+                    document.getElementById('feMergeLogCard').style.display = 'block';
+                    document.getElementById('feMergeLog').textContent =
+                        `[预览] 新增意图: ${data.stats['新增意图数']} | 新增词: ${data.stats['新增特征词数']} | 总意图: ${data.stats['总意图数']} | 总词: ${data.stats['总词数']}\n⚠️ 已有的词权重不会被覆盖\n\n${data.changelog}`;
+                    feLog('✅ 预览完成，请查看变更日志', 'success');
+                })
+                .catch(err => feLog('❌ 预览失败: ' + err.message, 'error'));
+        }
+
+        function confirmMerge() {
+            if (!window._feResult) { feLog('❌ 请先提取特征词', 'error'); return; }
+            const weightsPath = document.getElementById('feWeightsPath').value || 'result/global/weighted/weighted_words.json';
+            if (!confirm('确认合并到权重词表？\n已有的词权重分不会被修改。')) return;
+            feLog('正在合并...');
+            fetch('/api/feature-extract/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ features: window._feResult, weights_path: weightsPath, confirm: true })
+            })
+                .then(r => {
+                    if (!r.ok) return r.text().then(t => { throw new Error(`服务器错误 ${r.status}: ${t}`); });
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) { feLog('❌ ' + data.error, 'error'); return; }
+                    document.getElementById('feMergeLogCard').style.display = 'block';
+                    document.getElementById('feMergeLog').textContent =
+                        `[已合并] ${data.message}\n新增意图: ${data.stats['新增意图数']} | 新增词: ${data.stats['新增特征词数']} | 总意图: ${data.stats['总意图数']} | 总词: ${data.stats['总词数']}\n\n${data.changelog}`;
+                    feLog('✅ 合并完成！', 'success');
+                })
+                .catch(err => feLog('❌ 合并失败: ' + err.message, 'error'));
+        }
+    </script>
+</body>
+
+</html>

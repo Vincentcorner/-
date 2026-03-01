@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 上传的临时文件
+uploads/
+
+# 日志文件
+output.log
+scripts/output.log
+
+# 临时文件
+temp_*.py
+temp_*.json
+temp_*.txt
+_analysis_output*.json
+_struct_output.txt
+ai_result.json
+
+# 分析结果数据（体积大，不纳入版本控制）
+result/
+
+# Gemini AI 助手
+.gemini/
+
+# Agent 配置（含 workflows 和 skills，保留纳入版本控制）
+# .agent/
