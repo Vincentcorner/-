@@ -20,6 +20,18 @@ if sys.stderr.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ========== 默认配置 ==========
+def _get_config_path():
+    """获取 api_keys.json 路径（兼容打包和开发模式）"""
+    import os
+    # 打包模式：优先查找 exe 所在目录旁的 config/
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).parent
+        p = exe_dir / "config" / "api_keys.json"
+        if p.exists():
+            return p
+    # 开发模式：项目根目录的 config/
+    return Path(__file__).parent.parent.parent / "config" / "api_keys.json"
+
 def _load_api_key():
     """从配置文件或环境变量读取 API Key"""
     import os
@@ -28,7 +40,7 @@ def _load_api_key():
     if env_key:
         return env_key
     # 从配置文件读取
-    config_path = Path(__file__).parent.parent.parent / "config" / "api_keys.json"
+    config_path = _get_config_path()
     if config_path.exists():
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -47,7 +59,7 @@ def _load_api_key():
 
 def _load_api_config():
     """从配置文件读取 API 配置（base_url, model）"""
-    config_path = Path(__file__).parent.parent.parent / "config" / "api_keys.json"
+    config_path = _get_config_path()
     if config_path.exists():
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
