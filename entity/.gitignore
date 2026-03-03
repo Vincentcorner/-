@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+
+# API Key 配置（防泄露）
+config/api_keys.json
+
+# 运行产物
+uploads/
+result/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Antigravity
+.agent/
+.gemini/
+
+# OS
+Thumbs.db
+.DS_Store
