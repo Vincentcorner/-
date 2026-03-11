@@ -68,19 +68,22 @@ class WeightCalculator:
         prefix = layer[:2] if len(layer) >= 2 else layer
         return self.LAYER_KEY_MAP.get(prefix, 'L3')
     
+    # 固定返回的候选意图数量
+    TOP_K = 5
+
     def calculate(self, matched_words: List[Dict], domain: str = None,
                   intent_map: Dict = None) -> List[Dict]:
         """
         计算意图匹配得分
         
-        公式 F1: 单词得分 = 层级权重 × 词权重(意图级)
-        公式 F2: 原始得分(I) = Σ 单词得分
-        公式 F3: 归一化得分(I) = 原始得分 / 最大可能得分
+        公式: 单词得分 = 层级权重 × 词权重(意图级)
+        意图得分 = Σ 单词得分
+        按原始得分降序排列，返回 TOP5
         
         Args:
             matched_words: 切词匹配结果列表
             domain: 业务领域
-            intent_map: 意图映射表（用于计算归一化，可选）
+            intent_map: 保留参数兼容，不再用于归一化
         """
         intent_scores: Dict[str, float] = defaultdict(float)
         hit_details: Dict[str, List[Dict]] = defaultdict(list)
@@ -95,7 +98,7 @@ class WeightCalculator:
             layer_key = self._get_layer_key(layer)
             layer_weight = self.layer_weights.get(layer_key, 0.6)
             
-            # 计算得分 (F1)
+            # 计算得分
             score = layer_weight * word_weight
             
             intent_scores[intent] += score
@@ -107,42 +110,18 @@ class WeightCalculator:
                 "得分": round(score, 4)
             })
         
-        # 归一化得分 (F3)：如果提供了 intent_map，计算每个意图的最大可能得分
-        max_scores = {}
-        if intent_map:
-            for iname, layers in intent_map.items():
-                max_s = 0
-                for lname, words in layers.items():
-                    lk = self._get_layer_key(lname)
-                    lw = self.layer_weights.get(lk, 0.6)
-                    # 每层取最高词权重 × 层级权重 × 词数
-                    max_s += lw * len(words) * 1.0  # 假设最高词权重为 1.0
-                max_scores[iname] = max(max_s, 0.01)  # 避免除以零
-        
-        # 筛选超过阈值的意图
+        # 所有有得分的意图（无阈值过滤）
         results = []
         for intent, total_score in intent_scores.items():
-            # 归一化
-            if intent in max_scores:
-                norm_score = total_score / max_scores[intent]
-            else:
-                norm_score = total_score  # 无 intent_map 时不归一化
-            
-            if norm_score >= self.threshold:
-                results.append({
-                    "意图": intent,
-                    "得分": round(norm_score, 4),
-                    "原始得分": round(total_score, 4),
-                    "命中词数": len(hit_details[intent]),
-                    "命中详情": hit_details[intent]
-                })
+            results.append({
+                "意图": intent,
+                "得分": round(total_score, 4),
+                "命中词数": len(hit_details[intent]),
+                "命中详情": hit_details[intent]
+            })
         
         # 按得分降序排序
         results.sort(key=lambda x: x["得分"], reverse=True)
-        
-        # 返回所有超过阈值的意图，最多MAX_RESULTS个
-        max_results = min(self.top_k, self.MAX_RESULTS) if self.top_k else self.MAX_RESULTS
-        top_results = results[:max_results]
         
         # 记录日志
         if domain:
@@ -152,16 +131,14 @@ class WeightCalculator:
             self._logger.log_step(
                 step="权重计算",
                 input_data={"匹配词数": len(matched_words)},
-                output_data=top_results,
+                output_data=results[:self.TOP_K],
                 details={
-                    "阈值": self.threshold,
-                    "最大返回数": max_results,
-                    "总候选意图数": len(results),
-                    "超过阈值意图数": len(results)
+                    "TOP_K": self.TOP_K,
+                    "总候选意图数": len(results)
                 }
             )
         
-        return top_results
+        return results
     
     def calculate_with_config(self, matched_words: List[Dict], 
                               layer_weights: Dict[str, float] = None,

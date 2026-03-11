@@ -115,18 +115,13 @@ def match_4d(segmenter, calculator, rewrite_results: dict,
              raw_query: str, domain: str, intent_map: dict = None) -> tuple:
     """四路并行匹配：原始问 + 三维度转写
     
-    公式 F5: 意图最终得分 = max(四路得分)
-    公式 F6: 增强得分 = 基础得分 × (1 + 0.1 × (命中维度数 - 1))
-    
     返回:
-        results: 经阈值过滤后的意图列表
+        all_results: 全量意图列表（按得分降序）
         all_hit_words: 所有命中词映射
-        results_all: 全量意图列表（threshold=0）
     """
     intent_best = {}
-    intent_best_all = {}
     all_hit_words = {}
-    dim_hit_count = {}  # 统计每个意图命中了几个维度
+    dim_hit_count = {}
     
     match_sources = {
         'raw_query': raw_query,
@@ -139,11 +134,8 @@ def match_4d(segmenter, calculator, rewrite_results: dict,
         if not text or text == '无具体情形':
             continue
         matched_words = segmenter.segment(text, domain)
-        # 阈值压到最低，获取全量意图
-        intent_scores = calculator.calculate_with_config(
-            matched_words, threshold=0, top_k=999, domain=domain
-        )
-        intent_scores_all = intent_scores  # 全量模式下两者等价
+        # calculator 现在返回全量结果（无阈值，无归一化）
+        intent_scores = calculator.calculate(matched_words, domain=domain)
         for item in intent_scores:
             name = item['意图']
             if name not in intent_best or item['得分'] > intent_best[name]['得分']:
@@ -151,22 +143,15 @@ def match_4d(segmenter, calculator, rewrite_results: dict,
             dim_hit_count.setdefault(name, set()).add(dim)
             for detail in item.get('命中详情', []):
                 all_hit_words.setdefault(name, set()).add(detail['词'])
-        for item in intent_scores_all:
-            name = item['意图']
-            if name not in intent_best_all or item['得分'] > intent_best_all[name]['得分']:
-                intent_best_all[name] = item
-            for detail in item.get('命中详情', []):
-                all_hit_words.setdefault(name, set()).add(detail['词'])
     
-    # 多源命中加分 (F6)
+    # 多源命中加分
     for name, item in intent_best.items():
         hit_dims = len(dim_hit_count.get(name, set()))
         if hit_dims > 1:
             item['得分'] = round(item['得分'] * (1 + 0.1 * (hit_dims - 1)), 4)
     
-    results = sorted(intent_best.values(), key=lambda x: x['得分'], reverse=True)
-    results_all = sorted(intent_best_all.values(), key=lambda x: x['得分'], reverse=True)
-    return results, all_hit_words, results_all
+    all_results = sorted(intent_best.values(), key=lambda x: x['得分'], reverse=True)
+    return all_results, all_hit_words
 
 
 def format_intent_features(all_hit_words: dict, top_intents: list) -> str:
@@ -345,7 +330,7 @@ def diagnose_mismatch(is_match, algo_intent, benchmark, top_intents, all_hit_wor
                     hit = all_hit_words.get(bw, set())
             coverage = len(hit & set(benchmark_features_all)) / len(benchmark_features_all) if benchmark_features_all else 0
     
-    # Step 1a: 标杆意图是否在归一化过滤后的候选列表中？
+    # Step 1a: 标杆意图是否在 TOP5 候选列表中？
     matched_candidate = _find_benchmark_in_set(benchmark, set(all_intent_names))
     if matched_candidate:
         matched_item = next((x for x in top_intents if x['意图'] == matched_candidate), None)
@@ -353,21 +338,22 @@ def diagnose_mismatch(is_match, algo_intent, benchmark, top_intents, all_hit_wor
         benchmark_score = matched_item['得分'] if matched_item else 0
         return _result(
             '大模型筛选问题',
-            f'标杆意图「{benchmark}」存在于候选列表{score_info}但未被AI选中，AI选择了「{algo_intent}」',
+            f'标杆意图「{benchmark}」在TOP5中{score_info}但未被AI选中，AI选择了「{algo_intent}」',
             coverage, competitor, competitor_score - benchmark_score,
             ['优化意图筛选 prompt', '检查意图名称相似度'])
     
-    # Step 1b: 标杆意图是否在全量候选列表（无阈值过滤）中？
+    # Step 1b: 标杆意图是否在全量候选中但排名超出 TOP5？
     matched_in_unfiltered = _find_benchmark_in_set(benchmark, set(all_unfiltered_names))
     if matched_in_unfiltered:
         matched_item = next((x for x in (all_intents_unfiltered or []) if x['意图'] == matched_in_unfiltered), None)
-        score_info = f'（原始得分{matched_item["得分"]:.2f}）' if matched_item else ''
+        rank = next((i+1 for i, x in enumerate(all_intents_unfiltered or []) if x['意图'] == matched_in_unfiltered), '?')
+        score_info = f'（得分{matched_item["得分"]:.2f}, 排名{rank}）' if matched_item else ''
         benchmark_score = matched_item['得分'] if matched_item else 0
         return _result(
-            '算法筛选问题',
-            f'标杆意图「{benchmark}」在全量候选中{score_info}，但算法最终选择了「{algo_intent}」。可能是归一化阈值或AI筛选导致',
+            '排名超出TOP5',
+            f'标杆意图「{benchmark}」有得分{score_info}，但排名超出TOP5未被大模型看到',
             coverage, competitor, competitor_score - benchmark_score if matched_item else competitor_score,
-            ['检查归一化阈值是否过高', '优化AI筛选 prompt', '调整特征词权重'])
+            ['补充高权重特征词', '调整权重提升标杆排名'])
     
     # Step 2: 标杆意图是否在权重词表中？
     benchmark_weight_name = _find_benchmark_in_set(benchmark, weights_intent_set)
@@ -515,7 +501,8 @@ def run_intent_match_task(task_id: str, file_path: str, domain: str, count: int,
 
         send('status', {'phase': 'match_start', 'message': f'转写完成 ({len(rewrite_data)}/{total})，开始意图匹配...'})
 
-        # Step 2: AC匹配 + AI筛选
+        # Step 2: AC匹配 + AI筛选（TOP5策略）
+        TOP_K = 5  # 固定取TOP5给大模型
         results = []
         for i, row in df_subset.iterrows():
             idx = len(results)
@@ -525,62 +512,36 @@ def run_intent_match_task(task_id: str, file_path: str, domain: str, count: int,
             rewrite_results = rewrite_data.get(raw_query, {})
 
             if rewrite_results and rewrite_results.get('scenario') != '(转写失败)':
-                top_intents, all_hit_words, all_intents_unfiltered = match_4d(
-                    segmenter, calculator, rewrite_results, raw_query, domain,
-                    weights_data.get('意图映射表'))
+                all_ranked, all_hit_words = match_4d(
+                    segmenter, calculator, rewrite_results, raw_query, domain)
                 rewrite_display = format_rewrite_display(rewrite_results)
             else:
                 rewrite_display = raw_query[:80]
                 matched_words = segmenter.segment(raw_query, domain)
-                # 全量模式：阈值压到最低
-                top_intents = calculator.calculate_with_config(
-                    matched_words, threshold=0, top_k=999, domain=domain
-                ) if matched_words else []
-                all_intents_unfiltered = top_intents
+                all_ranked = calculator.calculate(matched_words, domain=domain) if matched_words else []
                 all_hit_words = {}
                 for m in matched_words:
                     all_hit_words.setdefault(m['意图'], set()).add(m['词'])
 
+            top5 = all_ranked[:TOP_K]
 
-
-            if not top_intents and all_intents_unfiltered:
-                # 归一化后无候选，但全量匹配有结果 → 回退到全量候选
-                if intent_select_prompt:
-                    send('progress', {
-                        'phase': 'match',
-                        'current': idx + 1,
-                        'total': total,
-                        'message': f'AI筛选(回退) [{idx+1}/{total}]: {raw_query[:30]}...'
-                    })
-                    algo_intent, _confidence = ai_select_intent(
-                        raw_query, rewrite_display,
-                        all_intents_unfiltered,
-                        all_hit_words, intent_select_prompt
-                    )
-                    time.sleep(DEFAULT_INTERVAL)
-                else:
-                    algo_intent = all_intents_unfiltered[0]['意图']
-            elif not top_intents:
+            if not all_ranked:
                 algo_intent = '(无匹配)'
-            elif intent_select_prompt and (
-                len(top_intents) >= 2 or
-                (len(top_intents) == 1 and top_intents[0]['得分'] < 0.7)
-            ):
-                # 扩展AI筛选触发：多候选 或 单候选低置信度
+            elif intent_select_prompt and len(top5) >= 2:
+                # 大模型从 TOP5 中筛选
                 send('progress', {
                     'phase': 'match',
                     'current': idx + 1,
                     'total': total,
-                    'message': f'AI筛选 [{idx+1}/{total}]: {raw_query[:30]}...'
+                    'message': f'AI从TOP5筛选 [{idx+1}/{total}]: {raw_query[:30]}...'
                 })
                 algo_intent, _confidence = ai_select_intent(
                     raw_query, rewrite_display,
-                    all_intents_unfiltered if all_intents_unfiltered else top_intents,
-                    all_hit_words, intent_select_prompt
+                    top5, all_hit_words, intent_select_prompt
                 )
                 time.sleep(DEFAULT_INTERVAL)
             else:
-                algo_intent = top_intents[0]['意图']
+                algo_intent = top5[0]['意图'] if top5 else '(无匹配)'
 
             send('progress', {
                 'phase': 'match',
@@ -589,40 +550,38 @@ def run_intent_match_task(task_id: str, file_path: str, domain: str, count: int,
                 'message': f'匹配 [{idx+1}/{total}]: {algo_intent}'
             })
 
-
-
-            # 全量特征词定位（只要有命中就记录）
+            # 全量特征词定位 — 展示所有命中意图+特征词+排名
             feature_location_parts = []
-            for item in (all_intents_unfiltered or []):
+            for rank, item in enumerate(all_ranked, 1):
                 name = item['意图']
-                score = item['得分']
                 words = all_hit_words.get(name, set())
                 if words:
-                    feature_location_parts.append(f"{name}({score:.4f})[{'、'.join(sorted(words))}]")
+                    feature_location_parts.append(
+                        f"{name}（{'、'.join(sorted(words))}）({rank})")
             feature_location = ' | '.join(feature_location_parts) if feature_location_parts else ''
 
             is_match = '✓' if benchmark and (
                 algo_intent in benchmark or benchmark in algo_intent or
-                any(x['意图'] in benchmark for x in top_intents)
+                any(x['意图'] in benchmark for x in top5)
             ) else '✗'
 
             # 诊断分析
             diagnosis = diagnose_mismatch(
-                is_match, algo_intent, benchmark, top_intents, all_hit_words,
+                is_match, algo_intent, benchmark, top5, all_hit_words,
                 weights_intent_set, segmenter, calculator, domain, weights_data,
-                all_intents_unfiltered=all_intents_unfiltered
+                all_intents_unfiltered=all_ranked
             )
 
             # 构建详情数据
             detail = {
                 '原始问题_完整': raw_query,
                 '转写结果': rewrite_display,
-                '全量意图得分': [{'意图': x['意图'], '得分': x['得分'],
-                              '命中词数': x.get('命中词数', 0)} for x in top_intents],
-                '全量意图得分_无阈值': [{'意图': x['意图'], '得分': x['得分'],
-                                    '命中词数': x.get('命中词数', 0)} for x in (all_intents_unfiltered or [])],
+                'TOP5意图': [{'意图': x['意图'], '得分': x['得分'],
+                            '命中词数': x.get('命中词数', 0)} for x in top5],
+                '全量意图排名': [{'意图': x['意图'], '得分': x['得分'],
+                              '命中词数': x.get('命中词数', 0)} for x in all_ranked],
                 '全量命中词': {k: list(v) for k, v in all_hit_words.items()},
-                '诊断分析': diagnosis  # 完整结构化 dict 或旧格式 str
+                '诊断分析': diagnosis
             }
 
             record = {
@@ -1084,7 +1043,7 @@ def start_feature_extract():
                         seen.add(x)
                         intents.append(x)
                 print(f"[特征词提取] 解析到 {len(all_intents)} 行，切片 {len(sliced)} 行，去重后 {len(intents)} 个唯一意图")
-            elif '原始问题' in df.columns:
+            elif '原始问题' in df.columns or '原始问' in df.columns or '测试问题' in df.columns:
                 all_results = df.to_dict('records')
                 results = all_results[start:start + count]
                 mode = 'results'
@@ -1102,7 +1061,6 @@ def start_feature_extract():
     }
     
     def run_extract():
-        from scripts.modules.weight_scorer import WeightScorer
         extractor = FeatureExtractor(FileManager())
         
         def on_progress(current, total, message):
@@ -1111,20 +1069,18 @@ def start_feature_extract():
             })
         
         try:
-            # Step 1: 提取特征词
+            # 提取特征词（不做AI打分）
             if mode == 'intents':
                 result = extractor.extract_from_intents(intents, on_progress)
             else:
                 result = extractor.extract_from_match_results(results, on_progress)
             
-            # Step 2: 自动AI打分
+            # 合并到全局词表
+            from scripts.modules import global_vocab
             intent_map = result.get('意图映射表', {})
             if intent_map:
-                on_progress(0, 1, '开始AI权重打分...')
-                scorer = WeightScorer()
-                score_result = scorer.score_features(intent_map, list(intent_map.keys()), on_progress)
-                result['词权重表'] = score_result.get('词权重表', {})
-                on_progress(1, 1, f'打分完成，共 {len(result["词权重表"])} 个词获得权重')
+                added = global_vocab.merge_intent_map(intent_map, source='AI提取')
+                on_progress(1, 1, f'已合并到全局词表，新增 {added} 个词条')
             
             feature_extract_tasks[task_id]['result'] = result
             feature_extract_tasks[task_id]['status'] = 'done'
@@ -1166,97 +1122,281 @@ def feature_extract_progress(task_id):
 
 @app.route('/api/feature-extract/merge', methods=['POST'])
 def feature_extract_merge():
-    """将提取结果合并到权重词表"""
-    from scripts.modules.feature_extractor import FeatureExtractor
+    """将提取结果合并到全局词表"""
+    from scripts.modules import global_vocab
     
     data = request.get_json(force=True) or {}
     new_features = data.get('features', {})
-    weights_path = data.get('weights_path', '')
     
-    if not new_features or not weights_path:
-        return jsonify({'error': '缺少参数'}), 400
+    if not new_features:
+        return jsonify({'error': '缺少提取结果数据'}), 400
     
-    # 相对路径转绝对路径
-    wp = Path(weights_path)
-    if not wp.is_absolute():
-        wp = project_root / wp
-    weights_path = str(wp)
+    intent_map = new_features.get('意图映射表', {})
+    if not intent_map:
+        return jsonify({'error': '提取结果中没有意图映射表'}), 400
     
     try:
-        extractor = FeatureExtractor(FileManager())
-        result = extractor.merge_into_weights(new_features, weights_path)
-        
-        # 保存合并后的数据
+        source = 'AI提取'
         if data.get('confirm'):
-            import json as json_mod
-            wp.parent.mkdir(parents=True, exist_ok=True)
-            with open(weights_path, 'w', encoding='utf-8') as f:
-                json_mod.dump(result['merged_data'], f, ensure_ascii=False, indent=2)
-            
-            # 同步生成 Excel 格式
-            try:
-                from scripts.export_weights_excel import export_to_excel
-                excel_path = str(wp.with_suffix('.xlsx'))
-                export_to_excel(result['merged_data'], excel_path)
-            except Exception as excel_err:
-                print(f"[警告] Excel导出失败: {excel_err}")
-            
+            added = global_vocab.merge_intent_map(intent_map, source=source)
             return jsonify({
-                'message': '合并完成',
-                'changelog': result['changelog'],
-                'stats': result['stats']
+                'message': f'合并完成，新增 {added} 个词条',
+                'stats': {'新增词条数': added, '涉及意图数': len(intent_map)},
+                'changelog': f'涉及 {len(intent_map)} 个意图，新增 {added} 个词条'
             })
         else:
-            # 预览模式
+            # 预览模式：统计但不保存
+            count = sum(len(ws) for layers in intent_map.values() for ws in layers.values())
             return jsonify({
                 'preview': True,
-                'changelog': result['changelog'],
-                'stats': result['stats']
+                'stats': {'新增词条数': count, '涉及意图数': len(intent_map)},
+                'changelog': f'预览：涉及 {len(intent_map)} 个意图，共 {count} 个词条'
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/weight-score', methods=['POST'])
-def weight_score():
-    """对特征词执行AI打分"""
-    from scripts.modules.weight_scorer import WeightScorer
+# ===== 人工补词 API =====
+
+@app.route('/api/feature-extract/manual-add', methods=['POST'])
+def manual_add_word():
+    """人工补词"""
+    from scripts.modules import global_vocab
+    data = request.get_json(force=True) or {}
+    intent = data.get('intent', '').strip()
+    word = data.get('word', '').strip()
+    layer = data.get('layer', '核心词').strip()
     
-    data = request.json or {}
-    intent_map = data.get('intent_map', {})
-    all_intents = data.get('all_intents', [])
+    if not intent or not word:
+        return jsonify({'error': '意图名称和特征词不能为空'}), 400
+    if layer not in ('核心词', '发散词', '同义词'):
+        return jsonify({'error': '层级必须为：核心词/发散词/同义词'}), 400
     
-    if not intent_map:
-        return jsonify({'error': '缺少意图映射表'}), 400
+    err = global_vocab.add_word(intent, word, layer)
+    if err:
+        return jsonify({'error': err}), 409
     
-    try:
-        scorer = WeightScorer(FileManager())
-        result = scorer.score_features(intent_map, all_intents)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return jsonify({'success': True, 'message': f'已添加「{word}」到意图「{intent}」的「{layer}」层级'})
 
 
-@app.route('/api/weight-score/validate', methods=['POST'])
-def weight_score_validate():
-    """反向校验"""
-    from scripts.modules.weight_scorer import WeightScorer
-    
-    data = request.json or {}
-    weights_path = data.get('weights_path', '')
-    benchmark_data = data.get('benchmark_data', [])
-    
-    if not weights_path or not benchmark_data:
-        return jsonify({'error': '缺少参数'}), 400
-    
+@app.route('/api/vocab/download')
+def download_vocab():
+    """下载全局词表 Excel"""
+    from scripts.modules import global_vocab
+    excel_path = global_vocab.get_excel_path()
+    if os.path.exists(excel_path):
+        return send_file(excel_path, as_attachment=True,
+                         download_name='weighted_words.xlsx')
+    return jsonify({'error': '全局词表不存在'}), 404
+
+
+
+@app.route('/api/feature-extract/upload-merge', methods=['POST'])
+def upload_merge_vocab():
+    """上传已有特征词 Excel 合并到全局词表"""
+    from scripts.modules import global_vocab
+    if 'file' not in request.files:
+        return jsonify({'error': '请上传 Excel 文件'}), 400
+    f = request.files['file']
+    if not f.filename:
+        return jsonify({'error': '请选择文件'}), 400
+
+    # 保存临时文件
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    save_path = UPLOAD_DIR / f'vocab_import_{ts}_{f.filename}'
+    f.save(str(save_path))
+
     try:
-        fm = FileManager()
-        weights_data = fm.load_json(Path(weights_path))
-        scorer = WeightScorer(fm)
-        warnings = scorer.reverse_validate(weights_data, benchmark_data)
-        return jsonify({'warnings': warnings, 'count': len(warnings)})
+        result = global_vocab.merge_from_excel(str(save_path))
+        return jsonify({
+            'message': f'合并完成: 新增 {result["added"]} 个词, 跳过 {result["skipped"]} 个重复词, 涉及 {result["intents"]} 个意图',
+            'added': result['added'],
+            'skipped': result['skipped'],
+            'intents': result['intents'],
+            'details': result['details'][:50]  # 最多返回50条明细
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'合并失败: {str(e)}'}), 500
+
+
+# ===== 权重分生成 API =====
+
+weight_scoring_tasks = {}
+
+@app.route('/api/weight-scoring/score', methods=['POST'])
+def weight_scoring_score():
+    """启动权重分打分（冷启动或纠偏）"""
+    from scripts.modules import global_vocab, weight_scoring
+    
+    task_id = f'ws_{int(time.time())}'
+    weight_scoring_tasks[task_id] = {
+        'status': 'running',
+        'progress': [],
+        'result': None
+    }
+    
+    # 检查是否上传了纠偏文件
+    test_cases = []
+    if 'file' in request.files:
+        f = request.files['file']
+        df = pd.read_excel(f)
+        raw_col = '原始问' if '原始问' in df.columns else ('测试问题' if '测试问题' in df.columns else df.columns[0])
+        bench_col = '标杆意图' if '标杆意图' in df.columns else (df.columns[1] if len(df.columns) > 1 else None)
+        for _, row in df.iterrows():
+            q = str(row[raw_col]) if pd.notna(row[raw_col]) else ''
+            b = str(row[bench_col]) if bench_col and pd.notna(row[bench_col]) else ''
+            if q and b:
+                test_cases.append({'原始问': q, '标杆意图': b})
+    
+    def run_scoring():
+        task = weight_scoring_tasks[task_id]
+        def on_progress(msg):
+            task['progress'].append(msg)
+        
+        try:
+            all_words, all_intents, intent_word_map = global_vocab.get_all_words_and_intents()
+            if not intent_word_map:
+                task['status'] = 'error'
+                task['error'] = '全局词表为空，请先提取特征词'
+                return
+            
+            has_weights = global_vocab.has_formula_weights()
+            
+            if not has_weights:
+                on_progress('词权重表无公式权重，执行冷启动...')
+                cs_result = weight_scoring.cold_start(intent_word_map, progress_cb=on_progress)
+                global_vocab.update_formula_weights(cs_result['weight_matrix'], '冷启动')
+                wm = cs_result['weight_matrix']
+                sim = cs_result['sim_matrix']
+                diff = {}
+            else:
+                on_progress('已有公式权重')
+                # 读取现有权重
+                vocab_data = global_vocab.load()
+                old_wm = {}
+                for word, info in vocab_data.get('词权重表', {}).items():
+                    fw = info.get('公式权重', {})
+                    if fw:
+                        old_wm[word] = fw
+                wm = old_wm
+                sim = None
+                diff = {}
+            
+            if test_cases:
+                on_progress(f'上传了 {len(test_cases)} 条纠偏数据，开始纠偏...')
+                corr = weight_scoring.correct(
+                    intent_word_map, test_cases,
+                    sim_matrix=sim if 'sim' in dir() and sim else None,
+                    old_weight_matrix=wm,
+                    progress_cb=on_progress
+                )
+                global_vocab.update_corrected_weights(
+                    corr['weight_matrix'], wm, corr['weight_diff'])
+                wm = corr['weight_matrix']
+                diff = corr['weight_diff']
+                sim = corr['sim_matrix']
+            
+            # 构建分页结果
+            result_rows = []
+            for word, intent_weights in wm.items():
+                for intent, w in intent_weights.items():
+                    is_corrected = word in diff and intent in diff.get(word, {})
+                    change_val = diff.get(word, {}).get(intent, {}).get('change', 0) if is_corrected else 0
+                    result_rows.append({
+                        '特征词': word,
+                        '意图': intent,
+                        '公式权重': round(w, 4),
+                        '是否纠偏': '✓' if is_corrected else '✗',
+                        '纠偏增量': f'{change_val:+.4f}' if is_corrected else '—',
+                    })
+            
+            task['result'] = result_rows
+            task['status'] = 'done'
+            on_progress(f'打分完成，共 {len(result_rows)} 条结果')
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            task['status'] = 'error'
+            task['error'] = str(e)
+    
+    threading.Thread(target=run_scoring, daemon=True).start()
+    return jsonify({'task_id': task_id, 'message': '打分任务已启动'})
+
+
+@app.route('/api/weight-scoring/progress/<task_id>')
+def weight_scoring_progress(task_id):
+    """权重分打分进度（SSE）"""
+    def generate():
+        last_idx = 0
+        while True:
+            task = weight_scoring_tasks.get(task_id)
+            if not task:
+                yield f'data: {json.dumps({"error": "任务不存在"})}\n\n'
+                break
+            progress = task['progress']
+            for p in progress[last_idx:]:
+                yield f'data: {json.dumps({"type": "progress", "message": p})}\n\n'
+            last_idx = len(progress)
+            if task['status'] == 'done':
+                yield f'data: {json.dumps({"type": "done", "total": len(task.get("result", []))})}\n\n'
+                break
+            if task['status'] == 'error':
+                yield f'data: {json.dumps({"type": "error", "message": task.get("error", "未知错误")})}\n\n'
+                break
+            time.sleep(1)
+    return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route('/api/weight-scoring/result')
+def weight_scoring_result():
+    """分页查询打分结果"""
+    task_id = request.args.get('task_id', '')
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('page_size', 20))
+    
+    task = weight_scoring_tasks.get(task_id)
+    if not task or not task.get('result'):
+        return jsonify({'error': '结果不存在'}), 404
+    
+    all_rows = task['result']
+    total = len(all_rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    
+    return jsonify({
+        'rows': all_rows[start:end],
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'total_pages': (total + page_size - 1) // page_size
+    })
+
+
+@app.route('/api/weight-scoring/download')
+def weight_scoring_download():
+    """下载打分结果 Excel"""
+    task_id = request.args.get('task_id', '')
+    task = weight_scoring_tasks.get(task_id)
+    if not task or not task.get('result'):
+        return jsonify({'error': '结果不存在'}), 404
+    
+    from openpyxl import Workbook as WB
+    wb = WB()
+    ws = wb.active
+    ws.title = '打分结果'
+    ws.append(['特征词', '意图', '公式权重', '是否纠偏', '纠偏增量'])
+    for row in task['result']:
+        ws.append([row['特征词'], row['意图'], row['公式权重'], row['是否纠偏'], row['纠偏增量']])
+    
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filepath = UPLOAD_DIR / f'打分结果_{ts}.xlsx'
+    wb.save(str(filepath))
+    return send_file(str(filepath), as_attachment=True,
+                     download_name=f'打分结果_{ts}.xlsx')
 
 
 if __name__ == '__main__':

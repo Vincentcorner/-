@@ -108,6 +108,11 @@ def _build_extract_prompt() -> str:
 
 def _build_extract_from_results_prompt() -> str:
     """构建从匹配结果中提取特征词的 system prompt"""
+    prompt_path = Path(__file__).parent.parent.parent / "prompts" / "feature_extract_from_results_prompt.md"
+    if prompt_path.exists():
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    # 兜底：文件不存在时使用内置默认
     return """你是一个特征词提取专家。我会给你一批意图匹配失败的案例，每条包含：原始问、标杆意图、三层转写结果。
 
 你的任务是从这些文本中提取特征词，补充到标杆意图的特征词库中。
@@ -271,8 +276,9 @@ class FeatureExtractor:
 
             cases = []
             for item in batch:
+                raw_q = item.get('原始问题', '') or item.get('原始问', '') or item.get('测试问题', '')
                 case = {
-                    '原始问': item.get('原始问题', ''),
+                    '原始问': raw_q,
                     '标杆意图': item.get('标杆意图', ''),
                     '转写结果': item.get('转写结果', ''),
                 }
@@ -299,19 +305,13 @@ class FeatureExtractor:
         return {'意图映射表': result_map}
 
     def _filter_actionable(self, results: List[dict]) -> List[dict]:
-        """筛选可自动处理的行（权重缺失 / 特征词未命中）"""
+        """筛选可处理的行 — 只要有标杆意图和原始问就处理"""
         actionable = []
         for r in results:
-            diag = r.get('分析结果', '') or r.get('诊断分析', '')
-            diag_type = ''
-            if isinstance(diag, dict):
-                diag_type = diag.get('诊断类别', '')
-            elif isinstance(diag, str):
-                if '权重分表意图不全' in diag:
-                    diag_type = '权重分表意图不全'
-                elif '特征词未命中' in diag:
-                    diag_type = '特征词未命中'
-            if diag_type in ('权重分表意图不全', '特征词未命中'):
+            raw_q = r.get('原始问题', '') or r.get('原始问', '') or r.get('测试问题', '')
+            benchmark = r.get('标杆意图', '')
+            # 有原始问或标杆意图就可以提取特征词
+            if raw_q or benchmark:
                 actionable.append(r)
         return actionable
 
